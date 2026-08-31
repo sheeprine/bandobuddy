@@ -18,7 +18,18 @@
 #define RSSI_RAW_MIN 90
 #define RSSI_RAW_MAX 280
 
+// RSSI percentage at/above which a channel is considered busy (someone
+// appears to be transmitting on it).
+#define CHANNEL_BUSY_THRESHOLD_PCT 50
+
+// One digital output per Raceband channel (R1..R8), each driving its own
+// busy/free LED. Order matches RACEBAND_FREQUENCIES_MHZ / RACEBAND_CHANNEL_NAMES.
+// Kept off the SPI bus pins (D10-D12) and the RSSI input (A0).
 namespace {
+    constexpr uint8_t CHANNEL_STATE_LED_PINS[RACEBAND_CHANNEL_COUNT] = {
+        2, 3, 4, 5, 6, 7, 8, 9,
+    };
+
     uint16_t rssiRaw[RACEBAND_CHANNEL_COUNT];
 
     uint8_t toPercent(uint16_t raw) {
@@ -34,16 +45,34 @@ namespace {
         }
     }
 
-    void reportSweep() {
+    // Lights each channel's LED according to its own RSSI threshold and
+    // returns a per-channel busy bitmask (bit i set = channel i busy) for
+    // reporting.
+    uint8_t updateChannelStateLeds() {
+        uint8_t busyMask = 0;
+        for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
+            bool busy = toPercent(rssiRaw[i]) >= CHANNEL_BUSY_THRESHOLD_PCT;
+            digitalWrite(CHANNEL_STATE_LED_PINS[i], busy ? HIGH : LOW);
+            if (busy) {
+                busyMask |= (1 << i);
+            }
+        }
+        return busyMask;
+    }
+
+    void reportSweep(uint8_t busyMask) {
         Serial.print(millis());
         Serial.print(F(" ms\t"));
         for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
+            bool busy = busyMask & (1 << i);
             Serial.print(RACEBAND_CHANNEL_NAMES[i]);
             Serial.print('=');
             Serial.print(rssiRaw[i]);
             Serial.print(F(" ("));
             Serial.print(toPercent(rssiRaw[i]));
-            Serial.print(F("%)"));
+            Serial.print(F("%, "));
+            Serial.print(busy ? F("BUSY") : F("FREE"));
+            Serial.print(F(")"));
             if (i < RACEBAND_CHANNEL_COUNT - 1) {
                 Serial.print('\t');
             }
@@ -56,6 +85,11 @@ void setup() {
     Serial.begin(SERIAL_BAUD);
 
     Rx5808::begin();
+
+    for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
+        pinMode(CHANNEL_STATE_LED_PINS[i], OUTPUT);
+        digitalWrite(CHANNEL_STATE_LED_PINS[i], LOW);
+    }
 
     Serial.println(F("Raceband RSSI scanner"));
     Serial.print(F("Channels:"));
@@ -70,5 +104,8 @@ void setup() {
 
 void loop() {
     scanAllChannels();
-    reportSweep();
+
+    uint8_t busyMask = updateChannelStateLeds();
+
+    reportSweep(busyMask);
 }
