@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include "rx5808.h"
+#include "web_ui.h"
 
 // Time to let the PLL relock and the RSSI output settle after switching
 // channels, before it can be trusted. RX5808/RTC6715 modules typically need
@@ -25,9 +26,17 @@
 // One digital output per Raceband channel (R1..R8), each driving its own
 // busy/free LED. Order matches RACEBAND_FREQUENCIES_MHZ / RACEBAND_CHANNEL_NAMES.
 // Kept off the SPI bus pins (D10-D12) and the RSSI input (A0).
+//
+// Overridable via build_flags (e.g.
+// -D CHANNEL_STATE_LED_PINS_LIST=19,21,22,23,25,26,27,32) for boards like
+// the ESP32 where the AVR defaults land on pins reserved for other uses.
+#ifndef CHANNEL_STATE_LED_PINS_LIST
+#define CHANNEL_STATE_LED_PINS_LIST 2, 3, 4, 5, 6, 7, 8, 9
+#endif
+
 namespace {
     constexpr uint8_t CHANNEL_STATE_LED_PINS[RACEBAND_CHANNEL_COUNT] = {
-        2, 3, 4, 5, 6, 7, 8, 9,
+        CHANNEL_STATE_LED_PINS_LIST,
     };
 
     uint16_t rssiRaw[RACEBAND_CHANNEL_COUNT];
@@ -100,12 +109,17 @@ void setup() {
         Serial.print(RACEBAND_FREQUENCIES_MHZ[i]);
     }
     Serial.println(F(" MHz"));
+
+    WebUi::begin();
 }
 
 void loop() {
     scanAllChannels();
 
     uint8_t busyMask = updateChannelStateLeds();
+    WebUi::setBusyMask(busyMask);
 
     reportSweep(busyMask);
+
+    WebUi::handleClient();
 }

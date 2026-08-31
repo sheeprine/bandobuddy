@@ -63,6 +63,37 @@ The Pro Micro (ATmega32U4) doesn't break out D11/D12 on its header, so the
 
 LED wiring (D2-D9) is unchanged.
 
+#### ESP32
+
+The ESP32's WiFi is used to serve a live channel-status web page (see
+below), so the `esp32` build environment moves every pin off the AVR
+defaults: GPIO6-11 are wired internally to the module's flash chip and
+can't be used as GPIOs, and GPIO0/2/5/12/15 are boot-mode strapping pins
+best left alone. RSSI is the only signal read with `analogRead()`, and
+WiFi takes over ADC2 for as long as it's active, so RSSI specifically
+needs an ADC1 pin - hence GPIO34. The LED pins are plain `digitalWrite()`
+outputs, so a few of them (GPIO25/26/27) doubling as ADC2 channels doesn't
+matter - that conflict only affects analog reads on a pin, not digital
+I/O.
+
+| Signal                | ESP32 pin |
+|------------------------|----------|
+| RX5808/RC832 DATA       | GPIO16   |
+| RX5808/RC832 CLK        | GPIO17   |
+| RX5808/RC832 LE / SEL (CS) | GPIO18 |
+| RX5808/RC832 RSSI       | GPIO34   |
+| R1 busy/free LED        | GPIO19   |
+| R2 busy/free LED        | GPIO21   |
+| R3 busy/free LED        | GPIO22   |
+| R4 busy/free LED        | GPIO23   |
+| R5 busy/free LED        | GPIO25   |
+| R6 busy/free LED        | GPIO26   |
+| R7 busy/free LED        | GPIO27   |
+| R8 busy/free LED        | GPIO32   |
+
+The ESP32 is 3.3V native, so unlike the 5V Nano/Uno/Pro Micro there's no
+need to worry about the RX5808's logic-level tolerance.
+
 ## Building
 
 ```sh
@@ -76,6 +107,7 @@ Other board environments are defined in `platformio.ini`:
 - `nanoatmega328` - Nano with the old bootloader (uses 57600 baud upload)
 - `uno` - Arduino Uno
 - `promicro16` - Arduino/SparkFun Pro Micro, 5V/16MHz (see Wiring above for its remapped pins)
+- `esp32` - Espressif ESP32 dev board, adds the web UI below (see Wiring above for its remapped pins)
 
 Select one explicitly with `pio run -e uno`.
 
@@ -103,6 +135,22 @@ Tune `CHANNEL_BUSY_THRESHOLD_PCT` to taste once you've calibrated
 raise it to only flag strong/close transmitters, lower it to catch weak/far
 ones too.
 
+## Web UI
+
+On the `esp32` build, the scanner also hosts its own WiFi access point and
+serves a live status page: one box per channel, green when free and red
+when busy, matching the LEDs. On boot it prints the network name and page
+URL to serial, e.g.:
+
+```
+Web UI: join WiFi "BandoBuddy" (password "raceband1") and browse to http://192.168.4.1
+```
+
+Join that network from a phone or laptop and open the printed address. The
+page polls the current busy/free state twice a second; there's no need to
+keep the serial monitor open. This is compiled out entirely on boards
+without WiFi (Nano/Uno/Pro Micro).
+
 ## Calibration
 
 The percentage figure is derived from `RSSI_RAW_MIN`/`RSSI_RAW_MAX` in
@@ -114,6 +162,10 @@ module:
 2. Power a video transmitter at close range on each Raceband channel in
    turn and note the raw peak values → use the highest as `RSSI_RAW_MAX`.
 3. Update the two constants and reflash.
+
+On ESP32, its ADC is less linear than the AVR boards' - recalibrate these
+two constants on the `esp32` build rather than reusing values measured on
+a Nano/Uno/Pro Micro.
 
 ## Tuning speed vs. stability
 
