@@ -1,5 +1,9 @@
 #include <Arduino.h>
 
+#if defined(ARDUINO_ARCH_ESP32)
+#include <driver/gpio.h>
+#endif
+
 #include "rx5808.h"
 #include "web_ui.h"
 
@@ -98,6 +102,12 @@ void setup() {
     for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
         pinMode(CHANNEL_STATE_LED_PINS[i], OUTPUT);
         digitalWrite(CHANNEL_STATE_LED_PINS[i], LOW);
+#if defined(ARDUINO_ARCH_ESP32)
+        // Each LED only draws ~6mA (see README), so the ~10mA drive
+        // setting covers it with a bit of margin, well under the 20mA
+        // default.
+        gpio_set_drive_capability(static_cast<gpio_num_t>(CHANNEL_STATE_LED_PINS[i]), GPIO_DRIVE_CAP_1);
+#endif
     }
 
     Serial.println(F("Raceband RSSI scanner"));
