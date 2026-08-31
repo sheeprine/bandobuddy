@@ -19,10 +19,20 @@
 //   3.3V / GND      per module regulator (RX5808 logic is 3.3V tolerant on
 //                    most pins, but check your specific board revision)
 // ---------------------------------------------------------------------------
+// Overridable via build_flags (e.g. -D RX5808_PIN_DATA=14) for boards like
+// the Arduino Pro Micro that don't break out D11/D12 on their header.
+#ifndef RX5808_PIN_DATA
 #define RX5808_PIN_DATA  10
+#endif
+#ifndef RX5808_PIN_CLOCK
 #define RX5808_PIN_CLOCK 11
+#endif
+#ifndef RX5808_PIN_LE
 #define RX5808_PIN_LE    12
+#endif
+#ifndef RX5808_PIN_RSSI
 #define RX5808_PIN_RSSI  A0
+#endif
 
 // Number of channels in the Raceband (Band E / "R") plate.
 #define RACEBAND_CHANNEL_COUNT 8

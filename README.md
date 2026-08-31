@@ -44,9 +44,24 @@ Wire everything to an Arduino Uno/Nano (ATmega328P) as follows:
 LEDs wire from their pin, through the resistor, to GND. Each LED lights up
 whenever that specific channel is considered busy (see below).
 
-RX5808 pin assignments are `#define`s at the top of `include/rx5808.h`; LED
-pin assignments are `CHANNEL_STATE_LED_PINS` in `src/main.cpp` - change
-either if you need different pins.
+RX5808 pin assignments are `#define`s at the top of `include/rx5808.h`
+(overridable via `build_flags`, see the `promicro16` env below); LED pin
+assignments are `CHANNEL_STATE_LED_PINS` in `src/main.cpp` - change either
+if you need different pins.
+
+#### Arduino Pro Micro
+
+The Pro Micro (ATmega32U4) doesn't break out D11/D12 on its header, so the
+`promicro16` build environment remaps the RX5808 bus to D14-D16 instead:
+
+| Signal                | Arduino pin |
+|------------------------|------------|
+| RX5808/RC832 DATA       | D14        |
+| RX5808/RC832 CLK        | D15        |
+| RX5808/RC832 LE / SEL (CS) | D16     |
+| RX5808/RC832 RSSI       | A0         |
+
+LED wiring (D2-D9) is unchanged.
 
 ## Building
 
@@ -60,6 +75,7 @@ Other board environments are defined in `platformio.ini`:
 - `nanoatmega328new` - Nano with the newer bootloader (default)
 - `nanoatmega328` - Nano with the old bootloader (uses 57600 baud upload)
 - `uno` - Arduino Uno
+- `promicro16` - Arduino/SparkFun Pro Micro, 5V/16MHz (see Wiring above for its remapped pins)
 
 Select one explicitly with `pio run -e uno`.
 
