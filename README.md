@@ -17,36 +17,36 @@ removing the onboard resistor/pad that ties the bus-select pin low, freeing
 up DATA/CLK/LE for direct microcontroller control instead of the module's
 onboard button-scan logic).
 
-Wire the module to an Arduino Uno/Nano (ATmega328P) as follows:
+You'll also need one LED per Raceband channel (each with a current-limiting
+resistor, e.g. 220Ω) to show that channel's busy/free state.
 
-| RX5808 / RC832 pad | Arduino pin      |
-|---------------------|-----------------|
-| DATA                 | D10             |
-| CLK                  | D11             |
-| LE / SEL (CS)        | D12             |
-| RSSI                 | A0              |
-| GND                  | GND             |
-| 3.3V / 5V            | per your module's onboard regulator |
+### Wiring
 
-Pin assignments are `#define`s at the top of `include/rx5808.h` if you need
-to change them.
+Wire everything to an Arduino Uno/Nano (ATmega328P) as follows:
 
-Also wire one LED per Raceband channel (with a current-limiting resistor,
-e.g. 220Ω) from each pin in `CHANNEL_STATE_LED_PINS` to GND:
+| Signal                | Arduino pin |
+|------------------------|------------|
+| RX5808/RC832 DATA       | D10        |
+| RX5808/RC832 CLK        | D11        |
+| RX5808/RC832 LE / SEL (CS) | D12     |
+| RX5808/RC832 RSSI       | A0         |
+| RX5808/RC832 GND        | GND        |
+| RX5808/RC832 3.3V / 5V  | per your module's onboard regulator |
+| R1 busy/free LED        | D2         |
+| R2 busy/free LED        | D3         |
+| R3 busy/free LED        | D4         |
+| R4 busy/free LED        | D5         |
+| R5 busy/free LED        | D6         |
+| R6 busy/free LED        | D7         |
+| R7 busy/free LED        | D8         |
+| R8 busy/free LED        | D9         |
 
-| Channel | LED pin |
-|---------|---------|
-| R1      | D2      |
-| R2      | D3      |
-| R3      | D4      |
-| R4      | D5      |
-| R5      | D6      |
-| R6      | D7      |
-| R7      | D8      |
-| R8      | D9      |
+LEDs wire from their pin, through the resistor, to GND. Each LED lights up
+whenever that specific channel is considered busy (see below).
 
-Each LED lights up whenever that specific channel is considered busy (see
-below). Pins are defined in `src/main.cpp`.
+RX5808 pin assignments are `#define`s at the top of `include/rx5808.h`; LED
+pin assignments are `CHANNEL_STATE_LED_PINS` in `src/main.cpp` - change
+either if you need different pins.
 
 ## Building
 
