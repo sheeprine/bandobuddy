@@ -1,5 +1,7 @@
 # Raceband RSSI Scanner
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 Scans all 8 channels of the analog FPV Raceband (5658-5917 MHz) with a
 single RX5808/RTC6715-based receiver module and reports RSSI per channel
 over serial. Since one receiver can only listen to one frequency at a time,
