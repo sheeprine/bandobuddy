@@ -51,6 +51,7 @@ namespace {
   .busy { background: #e74c3c; color: #fff; }
   .reserved { background: #fff; color: #111; }
   .box small { display: block; font-size: 0.6em; font-weight: normal; margin-top: 4px; }
+  .box .icon { font-size: 0.8em; margin-top: 4px; }
   .box input { width: 80%; font-size: 0.7em; box-sizing: border-box; }
   .box button { margin-top: 6px; font-size: 0.7em; }
 </style>
@@ -64,30 +65,37 @@ const busy = new Array(names.length).fill(false);
 const reserved = new Array(names.length).fill('');
 let editingIndex = -1;
 const grid = document.getElementById('grid');
+// Distinct symbol per busy state, not just color, so colorblind pilots can
+// tell channels apart without relying on red/green.
+const STATE_ICONS = { free: '✓', busy: '⚠︎' };
 names.forEach((name, i) => {
   const box = document.createElement('div');
-  box.className = 'box free';
   box.id = 'ch-' + name;
-  box.textContent = name;
   box.addEventListener('click', () => onBoxClick(i));
   grid.appendChild(box);
+  render(i);
 });
 
 function render(i) {
   if (editingIndex === i) return;
   const box = document.getElementById('ch-' + names[i]);
+  const state = busy[i] ? 'busy' : 'free';
+  box.className = 'box ' + (reserved[i] ? (busy[i] ? 'busy' : 'reserved') : state);
+  box.textContent = '';
+
+  const label = document.createElement('div');
+  label.textContent = names[i];
+  box.appendChild(label);
+
+  const icon = document.createElement('div');
+  icon.className = 'icon';
+  icon.textContent = STATE_ICONS[state];
+  box.appendChild(icon);
+
   if (reserved[i]) {
-    box.className = 'box ' + (busy[i] ? 'busy' : 'reserved');
-    box.textContent = '';
-    const label = document.createElement('div');
-    label.textContent = names[i];
     const who = document.createElement('small');
     who.textContent = reserved[i];
-    box.appendChild(label);
     box.appendChild(who);
-  } else {
-    box.className = 'box ' + (busy[i] ? 'busy' : 'free');
-    box.textContent = names[i];
   }
 }
 
