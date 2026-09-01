@@ -152,6 +152,8 @@ page polls the current busy/free state twice a second; there's no need to
 keep the serial monitor open. This is compiled out entirely on boards
 without WiFi (Nano/Uno/Pro Micro).
 
+![Web UI showing free, busy, and reserved channels](docs/web-ui.png)
+
 ### Pilot reservations
 
 Pilots can tap a free or busy card, type their name, and reserve that
