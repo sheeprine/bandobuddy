@@ -139,8 +139,9 @@ ones too.
 
 On the `esp32` build, the scanner also hosts its own WiFi access point and
 serves a live status page: one box per channel, green when free and red
-when busy, matching the LEDs. On boot it prints the network name and page
-URL to serial, e.g.:
+when busy, matching the LEDs. Each box also carries a checkmark/warning-
+triangle icon (not just color) so the state is readable regardless of color
+vision. On boot it prints the network name and page URL to serial, e.g.:
 
 ```
 Web UI: join WiFi "BandoBuddy" (password "raceband1") and browse to http://192.168.4.1
@@ -150,6 +151,18 @@ Join that network from a phone or laptop and open the printed address. The
 page polls the current busy/free state twice a second; there's no need to
 keep the serial monitor open. This is compiled out entirely on boards
 without WiFi (Nano/Uno/Pro Micro).
+
+### Pilot reservations
+
+Pilots can tap a free or busy card, type their name, and reserve that
+channel - the card turns white with a padlock icon and their name so
+everyone at the field can see who's on which frequency. Tapping a reserved
+card again releases it. If the channel actually keys up while reserved, the
+card still turns red (the live RSSI reading always takes priority over the
+reservation display). Reservations are held in RAM on the ESP32 only and
+don't survive a reboot, and there's no login - anyone on the AP can reserve
+or release any channel, matching the rest of this trust-based, pit-side
+device.
 
 ## Calibration
 
