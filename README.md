@@ -109,6 +109,7 @@ Other board environments are defined in `platformio.ini`:
 - `promicro16` - Arduino/SparkFun Pro Micro, 5V/16MHz (see Wiring above for its remapped pins)
 - `esp32` - Espressif ESP32 dev board, adds the web UI below (see Wiring above for its remapped pins)
 - `nanoatmega328new_tvout` - Nano with composite/analog video output added (see TV Output below)
+- `esp32_tvout` - Same as `esp32`, with composite/analog video output added (see TV Output below)
 
 Select one explicitly with `pio run -e uno`.
 
@@ -169,10 +170,19 @@ device.
 
 ## TV Output
 
-The `nanoatmega328new_tvout` build environment adds a composite (PAL/NTSC)
-video signal, via the [TVout library](https://github.com/Avamander/arduino-tvout),
-that mirrors the Web UI's per-channel grid directly onto a small CRT,
-composite monitor, or FPV goggles - no WiFi, browser, or phone needed:
+Two build environments add a composite (PAL/NTSC) video signal that mirrors
+the Web UI's per-channel grid directly onto a small CRT, composite monitor,
+or FPV goggles - no WiFi, browser, or phone needed. Both are opt-in
+(disabled in the default `nanoatmega328new`/`esp32` builds) since each needs
+its own pin remap - see the wiring for each below. Reservations aren't shown
+on either - those live only in the ESP32 Web UI's RAM, and pilots have no
+way to type a name into a TV screen - so both mirror the same busy/free
+bitmask that drives the LEDs.
+
+### AVR (Nano/Uno/Pro Micro)
+
+The `nanoatmega328new_tvout` build environment uses the
+[TVout library](https://github.com/Avamander/arduino-tvout):
 
 ```sh
 pio run -e nanoatmega328new_tvout -t upload
@@ -184,12 +194,9 @@ carries luma (brightness), no chroma, so unlike the Web UI's green/red
 coding, a busy channel is marked with a solid block in the corner of its box
 in addition to the text - a shape difference, not a color one, so the state
 still reads without relying on color, matching the accessibility approach
-already used for the LEDs and Web UI icons. Reservations aren't shown - those
-live only in the ESP32 Web UI's RAM, and this build has no WiFi to fetch them
-from - so the TV output mirrors the same busy/free bitmask that drives the
-LEDs.
+already used for the LEDs and Web UI icons.
 
-### Wiring
+#### Wiring
 
 TVout hard-codes its sync and video pins per chip; on the ATmega328
 (Uno/Nano) these are D9 (sync) and D7 (video), so this build environment
@@ -218,7 +225,7 @@ D7 (video) ---[1k ohm]----+
 PAL is available via `-D TV_OUT_PAL` (added to that environment's
 `build_flags`); NTSC is the default.
 
-### Caveats
+#### Caveats
 
 - The 128x64 monochrome frame buffer is allocated at runtime (~1KB) on the
   ATmega328's 2KB of RAM, on top of the rest of the sketch's globals and
@@ -231,6 +238,52 @@ PAL is available via `-D TV_OUT_PAL` (added to that environment's
   validated on hardware either - keep the composite video wiring/cable
   routed away from the RX5808 module and antenna, and re-check calibration
   (see below) once everything is wired up.
+
+### ESP32
+
+The `esp32_tvout` build environment uses the
+[ESP_8_BIT library](https://github.com/Roger-random/ESP_8_BIT_composite),
+which drives composite video off the ESP32's onboard DAC - no resistor
+network needed, just GPIO25 straight to the RCA center pin (shield to GND):
+
+```sh
+pio run -e esp32_tvout -t upload
+```
+
+This is on top of the regular `esp32` build - the WiFi Web UI still runs, so
+you get both a browser page and a goggles/monitor feed from the same board.
+Unlike the AVR build, ESP_8_BIT's composite signal does carry color, so the
+grid uses the same green (free) / red (busy) coding as the Web UI, plus the
+"FREE"/"BUSY" text for the same colorblind-friendly redundancy as everywhere
+else in this project.
+
+ESP_8_BIT's DAC output is fixed to GPIO25, which is R5's busy/free LED in
+the default `esp32` pin mapping, so this build environment moves that LED to
+GPIO33 instead:
+
+| Signal           | ESP32 pin |
+|------------------|-----------|
+| Composite video  | GPIO25    |
+| R5 busy/free LED | GPIO33    |
+
+(Everything else - RX5808, R1-R4/R6-R8 LEDs - stays on the pins in the
+Wiring section above.)
+
+PAL is available via `-D TV_OUT_PAL` (same flag as the AVR build, added to
+`esp32_tvout`'s `build_flags`); NTSC is the default.
+
+#### Caveats
+
+- This build has been compiled and its RAM/flash usage checked, but not run
+  on real hardware.
+- ESP_8_BIT generates its signal off an interrupt tied to the I2S/DAC
+  peripheral, independent of the main loop and the WiFi stack, so it should
+  coexist with the Web UI - but that interaction hasn't been verified on
+  actual hardware either.
+- As with the AVR build, generating a video signal next to a 5.8GHz RF
+  front-end is a plausible source of RSSI noise; keep the composite wiring
+  away from the RX5808 module and antenna and re-check calibration once
+  wired up.
 
 ## Calibration
 
