@@ -50,8 +50,10 @@ namespace {
   .free { background: #2ecc71; color: #063; }
   .busy { background: #e74c3c; color: #fff; }
   .reserved { background: #fff; color: #111; }
-  .box small { display: block; font-size: 0.6em; font-weight: normal; margin-top: 4px; }
-  .box .icon { font-size: 0.8em; margin-top: 4px; }
+  .box .row { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .box .row + .row { margin-top: 6px; }
+  .box .icon { font-size: 0.7em; }
+  .box small { font-size: 0.6em; font-weight: normal; }
   .box input { width: 80%; font-size: 0.7em; box-sizing: border-box; }
   .box button { margin-top: 6px; font-size: 0.7em; }
 </style>
@@ -83,19 +85,28 @@ function render(i) {
   box.className = 'box ' + (reserved[i] ? (busy[i] ? 'busy' : 'reserved') : state);
   box.textContent = '';
 
-  const label = document.createElement('div');
+  const nameRow = document.createElement('div');
+  nameRow.className = 'row';
+  const label = document.createElement('span');
   label.textContent = names[i];
-  box.appendChild(label);
-
-  const icon = document.createElement('div');
+  const icon = document.createElement('span');
   icon.className = 'icon';
   icon.textContent = STATE_ICONS[state];
-  box.appendChild(icon);
+  nameRow.appendChild(label);
+  nameRow.appendChild(icon);
+  box.appendChild(nameRow);
 
   if (reserved[i]) {
+    const pilotRow = document.createElement('div');
+    pilotRow.className = 'row';
+    const lock = document.createElement('span');
+    lock.className = 'icon';
+    lock.textContent = '🔒';
     const who = document.createElement('small');
     who.textContent = reserved[i];
-    box.appendChild(who);
+    pilotRow.appendChild(lock);
+    pilotRow.appendChild(who);
+    box.appendChild(pilotRow);
   }
 }
 
