@@ -243,8 +243,11 @@ PAL is available via `-D TV_OUT_PAL` (added to that environment's
 
 The `esp32_tvout` build environment uses the
 [ESP_8_BIT library](https://github.com/Roger-random/ESP_8_BIT_composite),
-which drives composite video off the ESP32's onboard DAC - no resistor
-network needed, just GPIO25 straight to the RCA center pin (shield to GND):
+which drives composite video off the ESP32's onboard DAC on GPIO25 (shield
+to GND). **See the known issue below before wiring this up for FPV
+goggles** - it's confirmed working electrically, but the picture isn't
+watchable on at least one goggle model (Fatshark) as of this library
+version:
 
 ```sh
 pio run -e esp32_tvout -t upload
@@ -272,18 +275,51 @@ Wiring section above.)
 PAL is available via `-D TV_OUT_PAL` (same flag as the AVR build, added to
 `esp32_tvout`'s `build_flags`); NTSC is the default.
 
-#### Caveats
+#### Known issue: rolling picture on FPV goggles
 
-- This build has been compiled and its RAM/flash usage checked, but not run
-  on real hardware.
+Tested on real hardware (ESP32-D0WD-V3, well past the chip revisions this
+library's README warns don't work at all) into a pair of Fatshark goggles:
+the firmware runs fine - WiFi, RX5808 scanning, everything else is
+unaffected - but the picture on the goggles never holds still, rolling
+continuously regardless of:
+
+- NTSC vs. PAL (`TV_OUT_PAL`) - both roll the same way.
+- Signal level - tried GPIO25 direct, and in series with 1kOhm, 270Ohm, and
+  135Ohm resistors (targeting the ~1Vpp/75Ohm composite spec that real FPV
+  video receiver modules output into the same input). Level changed
+  brightness/visibility, not the roll.
+- This isn't specific to this project's drawing code either - the
+  library's own unmodified example sketch (`GFX_HelloWorld`) rolls the same
+  way over the same wiring.
+
+The likely cause: this library generates its signal via a low-level ESP32
+hardware hack the author's own README describes as tested against
+old-school tube TVs. CRTs have a free-running analog deflection oscillator
+that's very forgiving of imprecise sync timing. FPV goggles instead decode
+composite video with a digital chip driving an LCD/OLED panel, which
+generally needs tighter, more consistent sync timing than a CRT to frame
+the picture at all - so a signal loose enough for a CRT to display cleanly
+can still roll on goggles. (PSRAM is a documented cause of near-identical
+"jiggling" symptoms for this library, but doesn't apply here - the
+`esp32dev` board build has no PSRAM support compiled in to begin with.)
+
+Bottom line: this backend runs correctly (WiFi/RX5808/etc. all unaffected)
+and its author reports it working on CRT-class displays, but we don't have
+one to confirm that ourselves, and it isn't currently known to work cleanly
+with FPV goggles - that part is confirmed, on real hardware, not a
+compiled-only guess. If you get it stable on a Fatshark (or other) goggle -
+through different wiring, a different resistor value, or a library fix - an
+issue or PR updating this section would be welcome.
+
+#### Other caveats
+
 - ESP_8_BIT generates its signal off an interrupt tied to the I2S/DAC
-  peripheral, independent of the main loop and the WiFi stack, so it should
-  coexist with the Web UI - but that interaction hasn't been verified on
-  actual hardware either.
+  peripheral, independent of the main loop and the WiFi stack; the Web UI
+  and RX5808 scan were confirmed unaffected during testing.
 - As with the AVR build, generating a video signal next to a 5.8GHz RF
   front-end is a plausible source of RSSI noise; keep the composite wiring
   away from the RX5808 module and antenna and re-check calibration once
-  wired up.
+  wired up. (Not yet specifically confirmed either way.)
 
 ## Calibration
 
