@@ -108,6 +108,7 @@ Other board environments are defined in `platformio.ini`:
 - `uno` - Arduino Uno
 - `promicro16` - Arduino/SparkFun Pro Micro, 5V/16MHz (see Wiring above for its remapped pins)
 - `esp32` - Espressif ESP32 dev board, adds the web UI below (see Wiring above for its remapped pins)
+- `nanoatmega328new_tvout` - Nano with composite/analog video output added (see TV Output below)
 
 Select one explicitly with `pio run -e uno`.
 
@@ -165,6 +166,71 @@ reservation display). Reservations are held in RAM on the ESP32 only and
 don't survive a reboot, and there's no login - anyone on the AP can reserve
 or release any channel, matching the rest of this trust-based, pit-side
 device.
+
+## TV Output
+
+The `nanoatmega328new_tvout` build environment adds a composite (PAL/NTSC)
+video signal, via the [TVout library](https://github.com/Avamander/arduino-tvout),
+that mirrors the Web UI's per-channel grid directly onto a small CRT,
+composite monitor, or FPV goggles - no WiFi, browser, or phone needed:
+
+```sh
+pio run -e nanoatmega328new_tvout -t upload
+```
+
+Each of the 8 boxes shows the channel name and its "FREE"/"BUSY" state, same
+as the Web UI, laid out in the same 4-column grid. Composite video here only
+carries luma (brightness), no chroma, so unlike the Web UI's green/red
+coding, a busy channel is marked with a solid block in the corner of its box
+in addition to the text - a shape difference, not a color one, so the state
+still reads without relying on color, matching the accessibility approach
+already used for the LEDs and Web UI icons. Reservations aren't shown - those
+live only in the ESP32 Web UI's RAM, and this build has no WiFi to fetch them
+from - so the TV output mirrors the same busy/free bitmask that drives the
+LEDs.
+
+### Wiring
+
+TVout hard-codes its sync and video pins per chip; on the ATmega328
+(Uno/Nano) these are D9 (sync) and D7 (video), so this build environment
+moves R6's and R8's busy/free LEDs off those two pins onto A1/A2 (used as
+plain digital outputs) to free them up:
+
+| Signal          | Arduino pin |
+|-----------------|-------------|
+| Composite sync  | D9          |
+| Composite video | D7          |
+| R6 busy/free LED | A1         |
+| R8 busy/free LED | A2         |
+
+(R1-R5 and R7 stay on their default pins - see Wiring above.)
+
+Mix the sync and video signals into a single composite line with two
+resistors, then feed that into an RCA jack (center pin = signal, shield =
+GND):
+
+```
+D9 (sync)  ---[470ohm]---+
+                          +--- RCA center pin --- to display
+D7 (video) ---[1k ohm]----+
+```
+
+PAL is available via `-D TV_OUT_PAL` (added to that environment's
+`build_flags`); NTSC is the default.
+
+### Caveats
+
+- The 128x64 monochrome frame buffer is allocated at runtime (~1KB) on the
+  ATmega328's 2KB of RAM, on top of the rest of the sketch's globals and
+  stack. This build has been compiled and its RAM/flash usage checked, but
+  not run on real hardware - if it locks up or corrupts the display, freeing
+  more RAM (e.g. dropping `RSSI_SAMPLES`) or reducing `TV_HRES`/`TV_VRES` in
+  `src/tv_ui.cpp` (must stay a multiple of 8) are the first things to try.
+- Generating a video signal digitally right next to a 5.8GHz RF front-end is
+  a plausible source of noise on the RSSI reading. This hasn't been
+  validated on hardware either - keep the composite video wiring/cable
+  routed away from the RX5808 module and antenna, and re-check calibration
+  (see below) once everything is wired up.
 
 ## Calibration
 

@@ -5,6 +5,7 @@
 #endif
 
 #include "rx5808.h"
+#include "tv_ui.h"
 #include "web_ui.h"
 
 // Time to let the PLL relock and the RSSI output settle after switching
@@ -121,6 +122,7 @@ void setup() {
     Serial.println(F(" MHz"));
 
     WebUi::begin();
+    TvUi::begin();
 }
 
 void loop() {
@@ -128,6 +130,7 @@ void loop() {
 
     uint8_t busyMask = updateChannelStateLeds();
     WebUi::setBusyMask(busyMask);
+    TvUi::setBusyMask(busyMask);
 
     reportSweep(busyMask);
 
