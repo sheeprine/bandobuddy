@@ -43,25 +43,38 @@ namespace {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BandoBuddy</title>
 <style>
-  body { font-family: sans-serif; background: #111; color: #eee; text-align: center; }
-  h1 { font-size: 1.2em; }
-  .grid { display: flex; flex-wrap: wrap; max-width: 480px; margin: 20px auto; }
-  .box { box-sizing: border-box; width: calc(25% - 10px); margin: 5px; padding: 24px 0; border-radius: 8px; font-size: 1.4em; font-weight: bold; background: #444; cursor: pointer; }
+  html, body { height: 100%; margin: 0; padding: 0; }
+  body { font-family: sans-serif; background: #111; color: #eee; text-align: center; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+  h1 { flex: 0 0 auto; font-size: 4vmin; margin: 1vmin 0; }
+  /* Fills whatever's left of the viewport below the title and centers the
+     grid within it, so the grid reads at a glance from across the pit
+     rather than sitting in a small fixed-size box. */
+  .gridWrap { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; box-sizing: border-box; padding: 1vmin; }
+  /* Sized to an exact 4:2 pixel box by JS (layoutGrid) - the largest that
+     fits gridWrap - so the 25%/50% box dimensions below always divide out
+     to a square, rather than however wide/tall the viewport happens to be.
+     Always 4 columns x 2 rows: RACEBAND_CHANNEL_COUNT is a fixed 8 (see
+     rx5808.h), same assumption tv_ui.cpp's GRID_COLS makes. */
+  .grid { display: flex; flex-wrap: wrap; box-sizing: border-box; }
+  /* Percentage width/height (not padding-driven) so every box is the same
+     size whether it's showing one row (free/busy) or two (reserved with a
+     pilot name). Font size is set on .grid by JS, scaled to match. */
+  .box { box-sizing: border-box; width: calc(25% - 2vmin); height: calc(50% - 2vmin); margin: 1vmin; padding: 1vmin; border-radius: 8px; font-weight: bold; background: #444; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
   .free { background: #2ecc71; color: #063; }
   .busy { background: #e74c3c; color: #fff; }
   .reserved { background: #fff; color: #111; }
   .box .row { display: flex; align-items: center; justify-content: center; }
-  .box .row > * + * { margin-left: 6px; }
-  .box .row + .row { margin-top: 6px; }
+  .box .row > * + * { margin-left: 0.3em; }
+  .box .row + .row { margin-top: 0.3em; }
   .box .icon { font-size: 0.7em; }
-  .box small { font-size: 0.6em; font-weight: normal; }
-  .box input { width: 80%; font-size: 0.7em; box-sizing: border-box; }
-  .box button { margin-top: 6px; font-size: 0.7em; }
+  .box small { font-size: 0.4em; font-weight: normal; }
+  .box input { width: 80%; font-size: 0.5em; box-sizing: border-box; }
+  .box button { margin-top: 0.3em; font-size: 0.5em; }
 </style>
 </head>
 <body>
 <h1>Raceband RSSI Scanner</h1>
-<div class="grid" id="grid"></div>
+<div class="gridWrap" id="gridWrap"><div class="grid" id="grid"></div></div>
 <script>
 // Written in ES5 and using XMLHttpRequest rather than fetch/async-await:
 // this page runs on old FPV-goggle/tablet browsers (e.g. iOS 9 Safari on an
@@ -77,6 +90,28 @@ for (var n = 0; n < names.length; n++) {
 }
 var editingIndex = -1;
 var grid = document.getElementById('grid');
+var gridWrap = document.getElementById('gridWrap');
+// gridWrap fills whatever's left of the viewport below the title (CSS
+// flex:1), but old WebKit (iOS 9 Safari) doesn't reliably resolve
+// percentage heights on the boxes when an ancestor's own height comes from
+// flex-grow rather than an explicit value. So instead of leaning on CSS
+// percentages the whole way down, this measures gridWrap directly (which
+// is accurate regardless of how its height was derived) and gives .grid an
+// explicit 4:2 pixel size - the largest that still fits, keeping it
+// centered - so the boxes divide out to squares instead of stretching to
+// whatever the viewport's aspect ratio happens to be. Reruns on resize and
+// on the address-bar show/hide that changes the viewport on mobile.
+function layoutGrid() {
+  var rect = gridWrap.getBoundingClientRect();
+  var boxSize = Math.floor(Math.min(rect.width / 4, rect.height / 2));
+  if (boxSize <= 0) return;
+  grid.style.width = (boxSize * 4) + 'px';
+  grid.style.height = (boxSize * 2) + 'px';
+  grid.style.fontSize = Math.round(boxSize * 0.3) + 'px';
+}
+layoutGrid();
+window.addEventListener('resize', layoutGrid);
+window.addEventListener('orientationchange', layoutGrid);
 // Distinct symbol per busy state, not just color, so colorblind pilots can
 // tell channels apart without relying on red/green.
 var STATE_ICONS = { free: '✓', busy: '⚠︎' };
