@@ -45,12 +45,13 @@ namespace {
 <style>
   body { font-family: sans-serif; background: #111; color: #eee; text-align: center; }
   h1 { font-size: 1.2em; }
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: 480px; margin: 20px auto; }
-  .box { padding: 24px 0; border-radius: 8px; font-size: 1.4em; font-weight: bold; background: #444; cursor: pointer; }
+  .grid { display: flex; flex-wrap: wrap; max-width: 480px; margin: 20px auto; }
+  .box { box-sizing: border-box; width: calc(25% - 10px); margin: 5px; padding: 24px 0; border-radius: 8px; font-size: 1.4em; font-weight: bold; background: #444; cursor: pointer; }
   .free { background: #2ecc71; color: #063; }
   .busy { background: #e74c3c; color: #fff; }
   .reserved { background: #fff; color: #111; }
-  .box .row { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .box .row { display: flex; align-items: center; justify-content: center; }
+  .box .row > * + * { margin-left: 6px; }
   .box .row + .row { margin-top: 6px; }
   .box .icon { font-size: 0.7em; }
   .box small { font-size: 0.6em; font-weight: normal; }
@@ -62,34 +63,43 @@ namespace {
 <h1>Raceband RSSI Scanner</h1>
 <div class="grid" id="grid"></div>
 <script>
-const names = [%NAMES%];
-const busy = new Array(names.length).fill(false);
-const reserved = new Array(names.length).fill('');
-let editingIndex = -1;
-const grid = document.getElementById('grid');
+// Written in ES5 and using XMLHttpRequest rather than fetch/async-await:
+// this page runs on old FPV-goggle/tablet browsers (e.g. iOS 9 Safari on an
+// original iPad Mini) where those newer features are unavailable. A single
+// unsupported syntax construct anywhere in this script would abort parsing
+// of the whole block, leaving the channel boxes unrendered.
+var names = [%NAMES%];
+var busy = [];
+var reserved = [];
+for (var n = 0; n < names.length; n++) {
+  busy.push(false);
+  reserved.push('');
+}
+var editingIndex = -1;
+var grid = document.getElementById('grid');
 // Distinct symbol per busy state, not just color, so colorblind pilots can
 // tell channels apart without relying on red/green.
-const STATE_ICONS = { free: '✓', busy: '⚠︎' };
-names.forEach((name, i) => {
-  const box = document.createElement('div');
+var STATE_ICONS = { free: '✓', busy: '⚠︎' };
+names.forEach(function (name, i) {
+  var box = document.createElement('div');
   box.id = 'ch-' + name;
-  box.addEventListener('click', () => onBoxClick(i));
+  box.addEventListener('click', function () { onBoxClick(i); });
   grid.appendChild(box);
   render(i);
 });
 
 function render(i) {
   if (editingIndex === i) return;
-  const box = document.getElementById('ch-' + names[i]);
-  const state = busy[i] ? 'busy' : 'free';
+  var box = document.getElementById('ch-' + names[i]);
+  var state = busy[i] ? 'busy' : 'free';
   box.className = 'box ' + (reserved[i] ? (busy[i] ? 'busy' : 'reserved') : state);
   box.textContent = '';
 
-  const nameRow = document.createElement('div');
+  var nameRow = document.createElement('div');
   nameRow.className = 'row';
-  const label = document.createElement('span');
+  var label = document.createElement('span');
   label.textContent = names[i];
-  const icon = document.createElement('span');
+  var icon = document.createElement('span');
   icon.className = 'icon';
   icon.textContent = STATE_ICONS[state];
   nameRow.appendChild(label);
@@ -97,12 +107,12 @@ function render(i) {
   box.appendChild(nameRow);
 
   if (reserved[i]) {
-    const pilotRow = document.createElement('div');
+    var pilotRow = document.createElement('div');
     pilotRow.className = 'row';
-    const lock = document.createElement('span');
+    var lock = document.createElement('span');
     lock.className = 'icon';
     lock.textContent = '🔒';
-    const who = document.createElement('small');
+    var who = document.createElement('small');
     who.textContent = reserved[i];
     pilotRow.appendChild(lock);
     pilotRow.appendChild(who);
@@ -110,33 +120,49 @@ function render(i) {
   }
 }
 
+function httpGet(url) {
+  return new Promise(function (resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url);
+    xhr.onload = function () {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.responseText);
+      } else {
+        reject(new Error('HTTP ' + xhr.status));
+      }
+    };
+    xhr.onerror = function () { reject(new Error('network error')); };
+    xhr.send();
+  });
+}
+
 function reserve(i, name) {
-  fetch('/reserve?ch=' + i + '&name=' + encodeURIComponent(name))
-    .then(() => { reserved[i] = name; render(i); })
-    .catch(() => { render(i); });
+  httpGet('/reserve?ch=' + i + '&name=' + encodeURIComponent(name))
+    .then(function () { reserved[i] = name; render(i); })
+    .catch(function () { render(i); });
 }
 
 function startEditing(i) {
   editingIndex = i;
-  const box = document.getElementById('ch-' + names[i]);
+  var box = document.getElementById('ch-' + names[i]);
   box.className = 'box free';
   box.textContent = '';
 
-  const input = document.createElement('input');
+  var input = document.createElement('input');
   input.type = 'text';
   input.placeholder = 'Pilot name';
   input.maxLength = 16;
-  input.addEventListener('click', (e) => e.stopPropagation());
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') submit();
+  input.addEventListener('click', function (e) { e.stopPropagation(); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.keyCode === 13) submit();
   });
 
-  const btn = document.createElement('button');
+  var btn = document.createElement('button');
   btn.textContent = 'Reserve';
-  btn.addEventListener('click', (e) => { e.stopPropagation(); submit(); });
+  btn.addEventListener('click', function (e) { e.stopPropagation(); submit(); });
 
   function submit() {
-    const val = input.value.trim();
+    var val = input.value.trim();
     editingIndex = -1;
     if (val) {
       reserve(i, val);
@@ -159,19 +185,21 @@ function onBoxClick(i) {
   startEditing(i);
 }
 
-async function poll() {
-  try {
-    const mask = parseInt(await (await fetch('/state')).text(), 10);
-    const list = await (await fetch('/reservations')).json();
-    names.forEach((name, i) => {
-      busy[i] = (mask & (1 << i)) !== 0;
-      reserved[i] = list[i] || '';
-      render(i);
-    });
-  } catch (e) {
-    // Ignore - the next poll will retry.
-  }
-  setTimeout(poll, 500);
+function poll() {
+  Promise.all([httpGet('/state'), httpGet('/reservations')])
+    .then(function (results) {
+      var mask = parseInt(results[0], 10);
+      var list = JSON.parse(results[1]);
+      names.forEach(function (name, i) {
+        busy[i] = (mask & (1 << i)) !== 0;
+        reserved[i] = list[i] || '';
+        render(i);
+      });
+    })
+    .catch(function () {
+      // Ignore - the next poll will retry.
+    })
+    .then(function () { setTimeout(poll, 500); });
 }
 poll();
 </script>
