@@ -149,7 +149,7 @@ calibrated percentage, and each channel's resulting busy/free state:
 ## Per-channel busy/free LEDs
 
 After every sweep, each channel's calibrated RSSI percentage is compared
-against `CHANNEL_BUSY_THRESHOLD_PCT` (50% by default, in `src/main.cpp`).
+against the busy threshold (50% by default - see Calibration below).
 Channels at or above the threshold are considered **busy** - a video
 transmitter appears to be active on that frequency - and their LED is
 driven HIGH. Channels below it are **free** and their LED is driven LOW.
@@ -160,11 +160,6 @@ Skipped entirely on the `esp8266` build (`CHANNEL_STATE_LEDS_ENABLED` in
 `src/main.cpp` defaults to off there) - see the ESP8266 wiring notes above
 for why. The busy/free state is still computed and reported over serial and
 the Web UI either way, just without driving any LED pins.
-
-Tune `CHANNEL_BUSY_THRESHOLD_PCT` to taste once you've calibrated
-`RSSI_RAW_MIN`/`RSSI_RAW_MAX` for your module (see Calibration below) -
-raise it to only flag strong/close transmitters, lower it to catch weak/far
-ones too.
 
 ## Web UI
 
@@ -197,6 +192,41 @@ reservation display). Reservations are held in RAM on the ESP32/ESP8266
 only and don't survive a reboot, and there's no login - anyone on the AP
 can reserve or release any channel, matching the rest of this trust-based,
 pit-side device.
+
+### Admin page and calibration wizard
+
+The gear icon (⚙) next to the title links to `/admin`, a small settings
+page for the RSSI calibration and busy threshold covered in Calibration
+below - no reflash needed to retune them. It has three controls (RSSI min,
+RSSI max, and the busy threshold as a slider) and a **Save** button, plus a
+**Calibrate...** button that walks through measuring RSSI min/max instead
+of guessing at raw ADC numbers:
+
+1. **Step 1 (noise floor):** with no video transmitter powered on nearby,
+   the modal shows the live raw RSSI reading updating twice a second.
+   Click **Next** once it's settled to capture it as the RSSI min
+   candidate.
+2. **Step 2 (signal strength):** power on a video transmitter on Raceband
+   channel R5 (5806MHz) and place it about 2m (6ft) from the receiver
+   antenna. The modal tracks the live reading and the peak seen so far
+   (so a moment of misalignment while positioning the VTX doesn't ruin the
+   reading) - click **Done** once the peak has stopped climbing. A
+   **Reset** button next to the peak clears it back to zero, for starting
+   the measurement over without leaving the step (e.g. after a stray
+   spike, or repositioning the VTX).
+3. **Review:** shows the RSSI min/max values it's about to set. **Save**
+   writes them (keeping whatever busy threshold the slider is currently
+   at); **Cancel** discards them and leaves the existing calibration
+   untouched.
+
+The wizard always measures channel R5 specifically (regardless of which
+channel you eventually fly on) so it has one consistent, repeatable
+reference point - the same min/max then applies to all 8 channels' RSSI
+readings, since the RX5808's absolute RSSI scale doesn't vary meaningfully
+channel-to-channel.
+
+Like reservations, calibration values live in RAM only and reset to their
+compile-time defaults (see Calibration below) on reboot.
 
 ## TV Output
 
@@ -353,19 +383,40 @@ issue or PR updating this section would be welcome.
 
 ## Calibration
 
-The percentage figure is derived from `RSSI_RAW_MIN`/`RSSI_RAW_MAX` in
-`src/main.cpp`, which are rough defaults. To calibrate for your specific
-module:
+The printed/reported percentage is derived from an RSSI min (noise floor)
+and RSSI max (strong signal) raw ADC value, and compared against a busy
+threshold percentage - all three defined in `include/calibration.h` as
+`RSSI_RAW_MIN_DEFAULT` (90), `RSSI_RAW_MAX_DEFAULT` (280), and
+`CHANNEL_BUSY_THRESHOLD_PCT_DEFAULT` (50). These are just the *starting*
+values a freshly flashed board boots with - overridable via build_flags for
+a board-specific starting point (e.g. `-D RSSI_RAW_MIN_DEFAULT=100`), same
+as the LED pin lists elsewhere in this README.
+
+**On `esp32`/`esp8266`:** all three are also adjustable at runtime, no
+reflash needed, from the Web UI's admin page (see "Admin page and
+calibration wizard" above) - either by typing values directly or via the
+guided "Calibrate..." wizard, which measures your specific RX5808 module's
+noise floor and a real VTX's signal strength for you rather than needing a
+serial-monitor readout. These runtime values live in RAM only and reset to
+the compile-time defaults above on reboot; there's currently no persistence
+across power cycles.
+
+**On Nano/Uno/Pro Micro** (no Web UI to change them from), calibrate by
+editing the compile-time defaults directly:
 
 1. Flash and open the serial monitor with no video transmitter powered on
-   nearby - note the raw values (noise floor) → use as `RSSI_RAW_MIN`.
+   nearby - note the raw values (noise floor) → use as
+   `RSSI_RAW_MIN_DEFAULT`.
 2. Power a video transmitter at close range on each Raceband channel in
-   turn and note the raw peak values → use the highest as `RSSI_RAW_MAX`.
-3. Update the two constants and reflash.
+   turn and note the raw peak values → use the highest as
+   `RSSI_RAW_MAX_DEFAULT`.
+3. Update the two defaults (in `include/calibration.h`, or via build_flags)
+   and reflash.
 
 On ESP32/ESP8266, their ADCs are less linear than the AVR boards' -
-recalibrate these two constants on the `esp32`/`esp8266` build rather than
-reusing values measured on a Nano/Uno/Pro Micro.
+calibrate on the `esp32`/`esp8266` build itself (the runtime admin page
+makes this easy - see above) rather than reusing values measured on a
+Nano/Uno/Pro Micro.
 
 ## Tuning speed vs. stability
 

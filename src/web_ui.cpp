@@ -15,6 +15,7 @@
 using WebServer = ESP8266WebServer;
 #endif
 
+#include "calibration.h"
 #include "rx5808.h"
 
 namespace {
@@ -25,6 +26,12 @@ namespace {
 
     WebServer server(80);
     volatile uint8_t currentBusyMask = 0;
+
+    // Raw RSSI per channel, updated once per sweep by setRssiRaw() and read
+    // by the "/rssi" endpoint - the admin page's live calibration wizard
+    // polls that to show/measure a live reading without needing its own
+    // separate sampling path into the RX5808.
+    uint16_t currentRssiRaw[RACEBAND_CHANNEL_COUNT] = {0};
 
     // Pilot name reserving each channel, empty when the channel is free to
     // take. Held in RAM only - reservations don't survive a reboot.
@@ -56,6 +63,7 @@ namespace {
   html, body { height: 100%; margin: 0; padding: 0; }
   body { font-family: sans-serif; background: #111; color: #eee; text-align: center; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
   h1 { flex: 0 0 auto; font-size: 4vmin; margin: 1vmin 0; }
+  h1 a { font-size: 0.6em; text-decoration: none; color: #9cf; vertical-align: middle; margin-left: 0.4em; }
   /* Fills whatever's left of the viewport below the title and centers the
      grid within it, so the grid reads at a glance from across the pit
      rather than sitting in a small fixed-size box. */
@@ -83,7 +91,7 @@ namespace {
 </style>
 </head>
 <body>
-<h1>Raceband RSSI Scanner</h1>
+<h1>Raceband RSSI Scanner <a href="/admin" title="Admin settings">&#9881;</a></h1>
 <div class="gridWrap" id="gridWrap"><div class="grid" id="grid"></div></div>
 <script>
 // Written in ES5 and using XMLHttpRequest rather than fetch/async-await:
@@ -318,6 +326,285 @@ window.setInterval(poll, 500);
 </html>
 )HTML";
 
+    // Raceband channel the "Calibrate" wizard watches live - R5 (5806MHz),
+    // per its on-screen instructions to key up a VTX on that channel.
+    constexpr uint8_t CALIBRATION_CHANNEL_INDEX = 4;
+
+    const char ADMIN_PAGE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BandoBuddy Admin</title>
+<style>
+  body { font-family: sans-serif; background: #111; color: #eee; margin: 0; padding: 3vmin; box-sizing: border-box; }
+  a.back { color: #9cf; text-decoration: none; font-size: 3.5vmin; }
+  h1 { font-size: 5vmin; margin: 2vmin 0 4vmin; }
+  .field { margin-bottom: 4vmin; }
+  label { display: block; margin-bottom: 1.5vmin; font-size: 3.5vmin; }
+  input[type=number] { font-size: 4vmin; width: 30vmin; max-width: 100%; padding: 1vmin; box-sizing: border-box; background: #222; color: #eee; border: 1px solid #555; border-radius: 4px; }
+  .sliderRow { display: flex; align-items: center; }
+  .sliderRow input[type=range] { flex: 1 1 auto; margin-right: 2vmin; }
+  .sliderRow output { font-size: 4vmin; min-width: 10vmin; text-align: right; }
+  button { font-size: 4vmin; padding: 1.5vmin 3vmin; margin: 1vmin 1vmin 1vmin 0; background: #333; color: #eee; border: 1px solid #555; border-radius: 4px; }
+  button:disabled { opacity: 0.5; }
+  #status { margin-top: 2vmin; font-size: 3.5vmin; min-height: 1.5em; }
+  /* Fixed + explicit top/right/bottom/left (not the "inset" shorthand,
+     which old WebKit - e.g. iOS 9 Safari on an iPad Mini - doesn't
+     support) so this reliably covers the full screen above everything
+     else, with its own scrollbar since a tall modal (the calibration
+     wizard's step 2, with its live/peak readings and reset button) can
+     exceed a small tablet's viewport height. Centering the modal via
+     margin:auto on a scrollable block container, rather than the more common
+     align-items:center flexbox trick, sidesteps a long-standing
+     WebKit/Blink bug where a flex-centered child taller than its
+     container can't be scrolled into full view - the parts above/below
+     the fold stay permanently clipped even with overflow:auto. That bug
+     is exactly what was truncating the modal's bottom on the iPad Mini. */
+  #overlay { display: none; position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 1000; background: rgba(0,0,0,0.7); overflow-y: auto; padding: 3vmin; box-sizing: border-box; }
+  #modal { background: #222; padding: 4vmin; border-radius: 8px; max-width: 100vmin; width: 100%; margin: 0 auto; box-sizing: border-box; }
+  #modal h2 { margin-top: 0; font-size: 4.5vmin; }
+  #modal p { font-size: 3.5vmin; }
+  #modal .live { font-size: 7vmin; font-weight: bold; text-align: center; margin: 3vmin 0; }
+  #modal .actions { display: flex; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<a class="back" href="/">&larr; Back</a>
+<h1>Admin</h1>
+
+<div class="field">
+  <label for="rssiMin">RSSI min (noise floor, raw ADC reading)</label>
+  <input type="number" id="rssiMin" min="0" max="4095">
+</div>
+<div class="field">
+  <label for="rssiMax">RSSI max (strong signal, raw ADC reading)</label>
+  <input type="number" id="rssiMax" min="0" max="4095">
+</div>
+<div class="field">
+  <label for="threshold">Busy threshold</label>
+  <div class="sliderRow">
+    <input type="range" id="threshold" min="0" max="100" step="1">
+    <output id="thresholdOut"></output>
+  </div>
+</div>
+
+<button id="saveBtn">Save</button>
+<button id="calibrateBtn">Calibrate&hellip;</button>
+<div id="status"></div>
+
+<div id="overlay"><div id="modal"></div></div>
+
+<script>
+// ES5/XMLHttpRequest, same reasoning as the main status page's script - this
+// can be opened from the same old goggle/tablet browsers.
+function httpGet(url) {
+  return new Promise(function (resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url);
+    xhr.timeout = 3000;
+    xhr.onload = function () {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.responseText);
+      } else {
+        reject(new Error('HTTP ' + xhr.status));
+      }
+    };
+    xhr.onerror = function () { reject(new Error('network error')); };
+    xhr.ontimeout = function () { reject(new Error('timeout')); };
+    xhr.send();
+  });
+}
+
+var rssiMinEl = document.getElementById('rssiMin');
+var rssiMaxEl = document.getElementById('rssiMax');
+var thresholdEl = document.getElementById('threshold');
+var thresholdOut = document.getElementById('thresholdOut');
+var statusEl = document.getElementById('status');
+
+thresholdEl.addEventListener('input', function () {
+  thresholdOut.textContent = thresholdEl.value + '%';
+});
+
+function loadValues() {
+  httpGet('/calibration').then(function (text) {
+    var data = JSON.parse(text);
+    rssiMinEl.value = data.rssiMin;
+    rssiMaxEl.value = data.rssiMax;
+    thresholdEl.value = data.thresholdPct;
+    thresholdOut.textContent = data.thresholdPct + '%';
+  }).catch(function () {
+    statusEl.textContent = 'Failed to load current settings.';
+  });
+}
+loadValues();
+
+function saveValues(min, max, thresholdPct, onDone) {
+  httpGet('/calibration/set?min=' + min + '&max=' + max + '&thresholdPct=' + thresholdPct)
+    .then(function () {
+      statusEl.textContent = 'Saved.';
+      onDone && onDone(true);
+    })
+    .catch(function () {
+      statusEl.textContent = 'Failed to save - check RSSI min is less than max.';
+      onDone && onDone(false);
+    });
+}
+
+document.getElementById('saveBtn').addEventListener('click', function () {
+  var min = parseInt(rssiMinEl.value, 10);
+  var max = parseInt(rssiMaxEl.value, 10);
+  var pct = parseInt(thresholdEl.value, 10);
+  if (isNaN(min) || isNaN(max) || isNaN(pct) || min >= max) {
+    statusEl.textContent = 'RSSI min must be a number less than RSSI max.';
+    return;
+  }
+  saveValues(min, max, pct);
+});
+
+// -- "Calibrate" wizard: step 1 samples the noise floor with nothing
+// transmitting, step 2 samples a VTX key-up on Raceband channel R5 (the
+// live RSSI readings this polls are always for R5 specifically - see
+// CALIBRATION_CHANNEL_INDEX server-side), then a review step lets the user
+// save or discard the pair of readings before anything is written.
+var overlay = document.getElementById('overlay');
+var modal = document.getElementById('modal');
+var wizardTimer = null;
+var wizardPollInFlight = false;
+var wizardMinCandidate = 0;
+var wizardMaxCandidate = 0;
+
+function stopWizardPolling() {
+  if (wizardTimer) {
+    window.clearInterval(wizardTimer);
+    wizardTimer = null;
+  }
+}
+
+function closeWizard() {
+  stopWizardPolling();
+  overlay.style.display = 'none';
+}
+
+function pollLiveRssi(onValue) {
+  if (wizardPollInFlight) return;
+  wizardPollInFlight = true;
+  httpGet('/rssi')
+    .then(function (text) {
+      var raw = JSON.parse(text);
+      onValue(raw[%CALIBRATION_CHANNEL_INDEX%]);
+    })
+    .catch(function () {
+      // Ignore - the next tick will retry.
+    })
+    .then(function () { wizardPollInFlight = false; });
+}
+
+function showNoiseStep() {
+  modal.innerHTML =
+    '<h2>Calibrate - step 1 of 2</h2>' +
+    '<p>Make sure no video transmitter is powered on near the receiver, then wait a moment for the reading below to settle.</p>' +
+    '<div class="live" id="liveVal">&ndash;</div>' +
+    '<div class="actions">' +
+      '<button id="cancelBtn">Cancel</button>' +
+      '<button id="nextBtn">Next</button>' +
+    '</div>';
+  document.getElementById('cancelBtn').addEventListener('click', closeWizard);
+
+  var liveVal = document.getElementById('liveVal');
+  var last = 0;
+  stopWizardPolling();
+  wizardTimer = window.setInterval(function () {
+    pollLiveRssi(function (v) {
+      last = v;
+      liveVal.textContent = v;
+    });
+  }, 400);
+
+  document.getElementById('nextBtn').addEventListener('click', function () {
+    wizardMinCandidate = last;
+    showSignalStep();
+  });
+}
+
+function showSignalStep() {
+  var peak = 0;
+  modal.innerHTML =
+    '<h2>Calibrate - step 2 of 2</h2>' +
+    '<p>Power on a video transmitter on Raceband channel R5 (5806MHz) and place it about 2m (6ft) from the receiver antenna.</p>' +
+    '<div class="live" id="liveVal">&ndash;</div>' +
+    '<p>Peak so far: <span id="peakVal">&ndash;</span> <button id="resetPeakBtn">Reset</button></p>' +
+    '<div class="actions">' +
+      '<button id="cancelBtn">Cancel</button>' +
+      '<button id="doneBtn">Done</button>' +
+    '</div>';
+  document.getElementById('cancelBtn').addEventListener('click', closeWizard);
+
+  var liveVal = document.getElementById('liveVal');
+  var peakVal = document.getElementById('peakVal');
+  // In case a stray spike (or a first, badly-aimed VTX placement) throws
+  // the peak off - start over without leaving/re-entering this step and
+  // losing the live view.
+  document.getElementById('resetPeakBtn').addEventListener('click', function () {
+    peak = 0;
+    peakVal.textContent = '–';
+  });
+
+  stopWizardPolling();
+  wizardTimer = window.setInterval(function () {
+    pollLiveRssi(function (v) {
+      liveVal.textContent = v;
+      if (v > peak) {
+        peak = v;
+        peakVal.textContent = v;
+      }
+    });
+  }, 400);
+
+  document.getElementById('doneBtn').addEventListener('click', function () {
+    wizardMaxCandidate = peak;
+    showReviewStep();
+  });
+}
+
+function showReviewStep() {
+  stopWizardPolling();
+  var valid = wizardMaxCandidate > wizardMinCandidate;
+  modal.innerHTML =
+    '<h2>Review</h2>' +
+    '<p>RSSI min: <b>' + wizardMinCandidate + '</b></p>' +
+    '<p>RSSI max: <b>' + wizardMaxCandidate + '</b></p>' +
+    (valid ? '' : '<p style="color:#e74c3c">Max must be greater than min - cancel and try again.</p>') +
+    '<div class="actions">' +
+      '<button id="cancelBtn">Cancel</button>' +
+      '<button id="saveWizardBtn"' + (valid ? '' : ' disabled') + '>Save</button>' +
+    '</div>';
+  document.getElementById('cancelBtn').addEventListener('click', closeWizard);
+  if (valid) {
+    document.getElementById('saveWizardBtn').addEventListener('click', function () {
+      var pct = parseInt(thresholdEl.value, 10) || 0;
+      saveValues(wizardMinCandidate, wizardMaxCandidate, pct, function (ok) {
+        if (ok) {
+          rssiMinEl.value = wizardMinCandidate;
+          rssiMaxEl.value = wizardMaxCandidate;
+        }
+        closeWizard();
+      });
+    });
+  }
+}
+
+document.getElementById('calibrateBtn').addEventListener('click', function () {
+  wizardMinCandidate = 0;
+  wizardMaxCandidate = 0;
+  overlay.style.display = 'block';
+  showNoiseStep();
+});
+</script>
+</body>
+</html>
+)HTML";
+
     void handleRoot() {
         String namesJs;
         for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
@@ -369,6 +656,57 @@ window.setInterval(poll, 500);
         pilotNames[ch] = server.arg("name");
         server.send(200, "text/plain", "OK");
     }
+
+    void handleAdmin() {
+        String page = FPSTR(ADMIN_PAGE_HTML);
+        page.replace("%CALIBRATION_CHANNEL_INDEX%", String(CALIBRATION_CHANNEL_INDEX));
+        server.send(200, "text/html", page);
+    }
+
+    void handleGetCalibration() {
+        String json = "{\"rssiMin\":";
+        json += Calibration::rssiMin();
+        json += ",\"rssiMax\":";
+        json += Calibration::rssiMax();
+        json += ",\"thresholdPct\":";
+        json += Calibration::busyThresholdPct();
+        json += "}";
+        server.send(200, "application/json", json);
+    }
+
+    // GET /calibration/set?min=<raw>&max=<raw>&thresholdPct=<0-100>. No
+    // authentication, matching /reserve above and the rest of this
+    // trust-based, pit-side device.
+    void handleSetCalibration() {
+        if (!server.hasArg("min") || !server.hasArg("max") || !server.hasArg("thresholdPct")) {
+            server.send(400, "text/plain", "missing min/max/thresholdPct");
+            return;
+        }
+        long rssiMin = server.arg("min").toInt();
+        long rssiMax = server.arg("max").toInt();
+        long thresholdPct = server.arg("thresholdPct").toInt();
+        bool inRange = rssiMin >= 0 && rssiMin <= 0xFFFF && rssiMax >= 0 && rssiMax <= 0xFFFF &&
+                       thresholdPct >= 0 && thresholdPct <= 100;
+        if (!inRange || !Calibration::set(static_cast<uint16_t>(rssiMin), static_cast<uint16_t>(rssiMax),
+                                           static_cast<uint8_t>(thresholdPct))) {
+            server.send(400, "text/plain", "bad values (need min < max, threshold 0-100)");
+            return;
+        }
+        server.send(200, "text/plain", "OK");
+    }
+
+    // Raw RSSI per channel, for the admin page's live calibration wizard.
+    void handleRssi() {
+        String json = "[";
+        for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
+            if (i > 0) {
+                json += ',';
+            }
+            json += currentRssiRaw[i];
+        }
+        json += ']';
+        server.send(200, "application/json", json);
+    }
 }
 
 namespace WebUi {
@@ -379,6 +717,10 @@ namespace WebUi {
         server.on("/state", handleState);
         server.on("/reservations", handleReservations);
         server.on("/reserve", handleReserve);
+        server.on("/admin", handleAdmin);
+        server.on("/calibration", handleGetCalibration);
+        server.on("/calibration/set", handleSetCalibration);
+        server.on("/rssi", handleRssi);
         server.begin();
 
         Serial.print(F("Web UI: join WiFi \""));
@@ -393,6 +735,12 @@ namespace WebUi {
         currentBusyMask = busyMask;
     }
 
+    void setRssiRaw(const uint16_t *rssiRaw) {
+        for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
+            currentRssiRaw[i] = rssiRaw[i];
+        }
+    }
+
     void handleClient() {
         server.handleClient();
     }
@@ -403,6 +751,7 @@ namespace WebUi {
 namespace WebUi {
     void begin() {}
     void setBusyMask(uint8_t) {}
+    void setRssiRaw(const uint16_t *) {}
     void handleClient() {}
 }
 

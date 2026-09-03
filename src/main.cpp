@@ -4,6 +4,7 @@
 #include <driver/gpio.h>
 #endif
 
+#include "calibration.h"
 #include "rx5808.h"
 #include "tv_ui.h"
 #include "web_ui.h"
@@ -16,17 +17,6 @@
 
 // Number of analogRead() samples averaged per channel per sweep.
 #define RSSI_SAMPLES 8
-
-// Raw ADC calibration range (0-1023) used only to derive the printed
-// percentage. These are rough defaults - for accurate readings, log the raw
-// values with your antenna both unplugged (noise floor) and fed a strong
-// signal, then update these two constants.
-#define RSSI_RAW_MIN 90
-#define RSSI_RAW_MAX 280
-
-// RSSI percentage at/above which a channel is considered busy (someone
-// appears to be transmitting on it).
-#define CHANNEL_BUSY_THRESHOLD_PCT 50
 
 // One digital output per Raceband channel (R1..R8), each driving its own
 // busy/free LED. Order matches RACEBAND_FREQUENCIES_MHZ / RACEBAND_CHANNEL_NAMES.
@@ -64,7 +54,7 @@ namespace {
     uint16_t rssiRaw[RACEBAND_CHANNEL_COUNT];
 
     uint8_t toPercent(uint16_t raw) {
-        long pct = map(raw, RSSI_RAW_MIN, RSSI_RAW_MAX, 0, 100);
+        long pct = map(raw, Calibration::rssiMin(), Calibration::rssiMax(), 0, 100);
         return static_cast<uint8_t>(constrain(pct, 0, 100));
     }
 
@@ -82,7 +72,7 @@ namespace {
     uint8_t updateChannelStateLeds() {
         uint8_t busyMask = 0;
         for (uint8_t i = 0; i < RACEBAND_CHANNEL_COUNT; i++) {
-            bool busy = toPercent(rssiRaw[i]) >= CHANNEL_BUSY_THRESHOLD_PCT;
+            bool busy = toPercent(rssiRaw[i]) >= Calibration::busyThresholdPct();
 #if CHANNEL_STATE_LEDS_ENABLED
             digitalWrite(CHANNEL_STATE_LED_PINS[i], busy ? HIGH : LOW);
 #endif
@@ -151,6 +141,7 @@ void loop() {
 
     uint8_t busyMask = updateChannelStateLeds();
     WebUi::setBusyMask(busyMask);
+    WebUi::setRssiRaw(rssiRaw);
     TvUi::setBusyMask(busyMask);
 
     reportSweep(busyMask);
