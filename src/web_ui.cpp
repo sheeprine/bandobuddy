@@ -1,9 +1,19 @@
 #include "web_ui.h"
 
-#if defined(ARDUINO_ARCH_ESP32)
+#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
 
+#if defined(ARDUINO_ARCH_ESP32)
 #include <WebServer.h>
 #include <WiFi.h>
+#else
+// ESP8266's Arduino core ships its WiFi AP and HTTP server under different
+// header/class names than ESP32's, but with an API compatible enough
+// (softAP/softAPIP, on/begin/handleClient/hasArg/arg/send) that aliasing
+// the class name lets the rest of this file stay board-agnostic.
+#include <ESP8266WebServer.h>
+#include <ESP8266WiFi.h>
+using WebServer = ESP8266WebServer;
+#endif
 
 #include "rx5808.h"
 

@@ -94,6 +94,29 @@ I/O.
 The ESP32 is 3.3V native, so unlike the 5V Nano/Uno/Pro Micro there's no
 need to worry about the RX5808's logic-level tolerance.
 
+#### ESP8266
+
+The `esp8266` build environment also serves the live channel-status web
+page, but has **no per-channel busy/free LEDs** - the ESP8266 doesn't have
+eight spare GPIOs once WiFi and the RX5808 bus are accounted for (and
+several of the ones it does have are boot-mode strapping pins best left
+alone), so this board relies on the Web UI as its only busy/free indicator.
+Only the RX5808 bus needs pins, remapped clear of the GPIO0/2/15
+strapping pins:
+
+| Signal                | ESP8266 pin (NodeMCU) |
+|------------------------|----------------------|
+| RX5808/RC832 DATA       | GPIO4 (D2)           |
+| RX5808/RC832 CLK        | GPIO5 (D1)           |
+| RX5808/RC832 LE / SEL (CS) | GPIO14 (D5)       |
+| RX5808/RC832 RSSI       | A0                    |
+
+Like the ESP32, the ESP8266 is 3.3V native, so there's no RX5808
+logic-level tolerance to worry about. A NodeMCU/Wemos D1 mini's onboard
+resistor divider on A0 is also what makes it safe to feed the RX5808's
+0-3.3V RSSI output directly into a pin whose bare ADC otherwise tops out
+around 1V.
+
 ## Building
 
 ```sh
@@ -108,6 +131,7 @@ Other board environments are defined in `platformio.ini`:
 - `uno` - Arduino Uno
 - `promicro16` - Arduino/SparkFun Pro Micro, 5V/16MHz (see Wiring above for its remapped pins)
 - `esp32` - Espressif ESP32 dev board, adds the web UI below (see Wiring above for its remapped pins)
+- `esp8266` - Espressif ESP8266 dev board, adds the web UI below but has no busy/free LEDs (see Wiring above)
 - `nanoatmega328new_tvout` - Nano with composite/analog video output added (see TV Output below)
 - `esp32_tvout` - Same as `esp32`, with composite/analog video output added (see TV Output below)
 
@@ -132,6 +156,11 @@ driven HIGH. Channels below it are **free** and their LED is driven LOW.
 This gives a quick visual per-channel "is this Raceband frequency clear"
 indicator without needing the serial monitor.
 
+Skipped entirely on the `esp8266` build (`CHANNEL_STATE_LEDS_ENABLED` in
+`src/main.cpp` defaults to off there) - see the ESP8266 wiring notes above
+for why. The busy/free state is still computed and reported over serial and
+the Web UI either way, just without driving any LED pins.
+
 Tune `CHANNEL_BUSY_THRESHOLD_PCT` to taste once you've calibrated
 `RSSI_RAW_MIN`/`RSSI_RAW_MAX` for your module (see Calibration below) -
 raise it to only flag strong/close transmitters, lower it to catch weak/far
@@ -139,10 +168,11 @@ ones too.
 
 ## Web UI
 
-On the `esp32` build, the scanner also hosts its own WiFi access point and
-serves a live status page: one box per channel, green when free and red
-when busy, matching the LEDs. Each box also carries a checkmark/warning-
-triangle icon (not just color) so the state is readable regardless of color
+On the `esp32` and `esp8266` builds, the scanner also hosts its own WiFi
+access point and serves a live status page: one box per channel, green when
+free and red when busy (matching the LEDs, on boards that have them). Each
+box also carries a checkmark/warning-triangle icon (not just color) so the
+state is readable regardless of color
 vision. On boot it prints the network name and page URL to serial, e.g.:
 
 ```
@@ -163,10 +193,10 @@ channel - the card turns white with a padlock icon and their name so
 everyone at the field can see who's on which frequency. Tapping a reserved
 card again releases it. If the channel actually keys up while reserved, the
 card still turns red (the live RSSI reading always takes priority over the
-reservation display). Reservations are held in RAM on the ESP32 only and
-don't survive a reboot, and there's no login - anyone on the AP can reserve
-or release any channel, matching the rest of this trust-based, pit-side
-device.
+reservation display). Reservations are held in RAM on the ESP32/ESP8266
+only and don't survive a reboot, and there's no login - anyone on the AP
+can reserve or release any channel, matching the rest of this trust-based,
+pit-side device.
 
 ## TV Output
 
@@ -333,9 +363,9 @@ module:
    turn and note the raw peak values → use the highest as `RSSI_RAW_MAX`.
 3. Update the two constants and reflash.
 
-On ESP32, its ADC is less linear than the AVR boards' - recalibrate these
-two constants on the `esp32` build rather than reusing values measured on
-a Nano/Uno/Pro Micro.
+On ESP32/ESP8266, their ADCs are less linear than the AVR boards' -
+recalibrate these two constants on the `esp32`/`esp8266` build rather than
+reusing values measured on a Nano/Uno/Pro Micro.
 
 ## Tuning speed vs. stability
 
